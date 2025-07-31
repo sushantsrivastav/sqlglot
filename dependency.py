@@ -8,6 +8,15 @@ df = pd.read_csv("dependency_data.csv")  # Replace with your filename
 G = nx.DiGraph()
 for _, row in df.iterrows():
     G.add_edge(row["SourceTableName"], row["Target Table Name"])
+try:
+    cycles = list(nx.find_cycle(G, orientation='original'))
+    if cycles:
+        print("❌ Cycle detected in dependency graph:")
+        for edge in cycles:
+            print(" -> ".join(str(e[0]) for e in cycles + [cycles[0]]))
+        raise Exception("Graph contains cycle. Topological sort cannot proceed.")
+except nx.NetworkXNoCycle:
+    print("✅ No cycle found. Proceeding with topological sort...")
 
 # Step 1: Compute node levels (topological sort)
 def calculate_node_levels(graph):

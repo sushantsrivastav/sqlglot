@@ -22,12 +22,8 @@ def clean_source(expr: str) -> str:
     return s.strip().strip("'").strip('"')
 
 def looks_like_ui_mapping(attr_name: str) -> bool:
-    """Match ui_mapping_text with tolerance to spaces/case/extra chars."""
-    if not attr_name:
-        return False
-    n = attr_name.lower().strip()
-    # tolerant: substring match covers 'ui_mapping_text ', 'UI_MAPPING_TEXT', etc.
-    return "ui_mapping_text" in n
+    """Match ui_mapping_text with tolerance to spaces/case."""
+    return bool(attr_name) and "ui_mapping_text" in attr_name.lower()
 
 def xml_to_tabular(xml_path: str, out_xlsx: str = "ui_mappings.xlsx") -> None:
     tree = ET.parse(xml_path)
@@ -38,38 +34,22 @@ def xml_to_tabular(xml_path: str, out_xlsx: str = "ui_mappings.xlsx") -> None:
     dielements_seen = 0
     ui_attrs_seen = 0
 
-    # Count DIElements
-    for e in root.iter():
-        if isinstance(e.tag, str) and e.tag.endswith("DIElement"):
-            dielements_seen += 1
-
-    # Iterate DIElements
+    # Iterate all DIElement nodes
     for diel in root.iter():
         if not (isinstance(diel.tag, str) and diel.tag.endswith("DIElement")):
             continue
+        dielements_seen += 1
 
         target_name = (diel.get("name") or "").strip()
         if not target_name:
             continue
 
+        # Robust: find ANY descendant DAttribute under this DIElement
         ui_attr = None
-
-        # Try under DIAttibutes and DAttributes (both spellings)
-        for container in diel.findall("./DIAttibutes") + diel.findall("./DAttributes"):
-            for da in container.findall("./DAttribute"):
-                if looks_like_ui_mapping(da.get("name")):
-                    ui_attr = da
-                    break
-            if ui_attr:
+        for da in diel.findall(".//DAttribute"):
+            if looks_like_ui_mapping(da.get("name")):
+                ui_attr = da
                 break
-
-        # Fallback: any descendant DAttribute under this DIElement
-        if ui_attr is None:
-            for da in diel.iter():
-                if isinstance(da.tag, str) and da.tag.endswith("DAttribute"):
-                    if looks_like_ui_mapping(da.get("name")):
-                        ui_attr = da
-                        break
 
         if ui_attr is None:
             continue
@@ -77,7 +57,6 @@ def xml_to_tabular(xml_path: str, out_xlsx: str = "ui_mappings.xlsx") -> None:
         ui_attrs_seen += 1
         raw_val = (ui_attr.get("value") or "").strip()
         if not raw_val or raw_val.lower() == "null":
-            # Skip empty/null mappings; remove this check if you want to include them
             continue
 
         rows.append({
@@ -88,12 +67,12 @@ def xml_to_tabular(xml_path: str, out_xlsx: str = "ui_mappings.xlsx") -> None:
 
     if not rows:
         print(f"Found {dielements_seen} DIElement tags, but 0 usable ui_mapping_text values.")
-        print("Tip: open the XML and search for 'ui_mapping_text' to confirm spelling/whitespace.")
+        print("Tip: confirm the attribute is present and not value='null'.")
         return
 
     df = pd.DataFrame(rows).sort_values("Target_Field").reset_index(drop=True)
 
-    # Write to Excel if possible, else CSV fallback
+    # Prefer Excel, fall back to CSV if openpyxl not installed
     try:
         with pd.ExcelWriter(out_xlsx, engine="openpyxl") as xw:
             df.to_excel(xw, index=False, sheet_name="Mappings")
